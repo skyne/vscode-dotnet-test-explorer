@@ -15,6 +15,7 @@ import { Utility } from "./utility";
 
 export interface ITestRunContext {
     testName: string;
+    testCaseName: string;
     isSingleTest: boolean;
 }
 
@@ -120,6 +121,14 @@ export class TestCommands implements Disposable {
         this.onTestRunEmitter.fire(testContext);
     }
 
+
+    public watchRunningTests(namespace: string): void {
+        const testCase = namespace;
+        namespace = namespace.replace(/\(.*\)/,'');
+        const textContext = {testName: namespace, testCaseName: testCase, isSingleTest: false};
+        this.sendRunningTest(textContext);
+    }
+    
     public sendBuildFailed(testContext: ITestRunContext) {
         this.onBuildFailedEmitter.fire(testContext);
     }
@@ -130,7 +139,7 @@ export class TestCommands implements Disposable {
     }
 
     public runTest(test: TestNode): void {
-        this.runTestByName(test.fqn, !test.isFolder);
+        this.runTestByName(test.parentPath+ '.' +test.name, !test.isFolder);
     }
 
     public runTestByName(testName: string, isSingleTest: boolean): void {
@@ -166,6 +175,9 @@ export class TestCommands implements Disposable {
 
         commands.executeCommand("workbench.view.extension.test", "workbench.view.extension.test");
 
+        const testCase = testName;
+        testName = testName.replace(/\(.*\)/,'');
+
         const testDirectories = this
             .testDirectories
             .getTestDirectories(testName);
@@ -178,8 +190,10 @@ export class TestCommands implements Disposable {
 
         Logger.Log(`Test run for ${testName}`);
 
-        for (const { } of testDirectories) {
-            const testContext = { testName, isSingleTest };
+        Logger.Log(`Test run for ${testName}, expecting ${this.waitForAllTests.expectedNumberOfFiles} test results file(s) in total`) ;
+
+        for (const {} of testDirectories) {
+            const testContext = {testName, testCaseName: testCase, isSingleTest};
             this.lastRunTestContext = testContext;
             this.sendRunningTest(testContext);
         }
@@ -207,17 +221,13 @@ export class TestCommands implements Disposable {
             Logger.Log(`Error while executing test command: ${err}`);
             if (err.message === "Build command failed") {
 
-                vscode
-                    .window
-                    .showErrorMessage("Build failed. Fix your build and try to run the test(s) again", "Re-run test(s)",)
-                    .then(selection => {
-                        vscode.commands.executeCommand("dotnet-test-explorer.rerunLastCommand");
-                    });;
-
-                for (const { } of testDirectories) {
-                    const testContext = { testName, isSingleTest };
-                    this.lastRunTestContext = testContext;
-                    this.sendBuildFailed(testContext);
+            try {
+                if (Utility.runInParallel) {
+                    await Promise.all(testDirectories.map( async (dir, i) => this.runTestCommandForSpecificDirectory(dir, testName, isSingleTest, i, debug)));
+                } else {
+                    for (let i = 0; i < testDirectories.length; i++) {
+                        await this.runTestCommandForSpecificDirectory(testDirectories[i], testName, isSingleTest, i, debug);
+                    }
                 }
             }
         }
@@ -254,7 +264,7 @@ export class TestCommands implements Disposable {
 
             if (testName && testName.length) {
                 if (isSingleTest) {
-                    command = command + ` --filter "FullyQualifiedName=${testName.replace(/\(.*\)/g, "")}"`;
+                    command = command + ` --filter '"FullyQualifiedName=${testName.replace(/\(|\)|"/g,function(match) {return '\\'+match})}"'`;
                 } else {
                     command = command + ` --filter "FullyQualifiedName~${testName.replace(/\(.*\)/g, "")}"`;
                 }

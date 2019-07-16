@@ -151,7 +151,7 @@ export class DotnetTestExplorer implements TreeDataProvider<TestNode> {
 
     private getNodesMatchingTestRun(testRunContext: ITestRunContext) {
         const filter = testRunContext.isSingleTest ?
-            ((testNode: TestNode) => testNode.fqn === testRunContext.testName)
+            ((testNode: TestNode) =>  testNode.fullName === testRunContext.testCaseName )
             : ((testNode: TestNode) => testNode.fullName.startsWith(testRunContext.testName));
 
         return this.testNodes.filter((testNode: TestNode) => !testNode.isFolder && filter(testNode));
