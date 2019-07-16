@@ -22,6 +22,7 @@ export interface IWaitForAllTests {
 
 export interface ITestRunContext {
     testName: string;
+    testCaseName: string;
     isSingleTest: boolean;
 }
 
@@ -134,7 +135,9 @@ export class TestCommands implements Disposable {
     }
 
     public watchRunningTests(namespace: string): void {
-        const textContext = {testName: namespace, isSingleTest: false};
+        const testCase = namespace;
+        namespace = namespace.replace(/\(.*\)/,'');
+        const textContext = {testName: namespace, testCaseName: testCase, isSingleTest: false};
         this.sendRunningTest(textContext);
     }
 
@@ -144,7 +147,7 @@ export class TestCommands implements Disposable {
     }
 
     public runTest(test: TestNode): void {
-        this.runTestByName(test.fqn, !test.isFolder);
+        this.runTestByName(test.parentPath+ '.' +test.name, !test.isFolder);
     }
 
     public runTestByName(testName: string, isSingleTest: boolean): void {
@@ -205,6 +208,9 @@ export class TestCommands implements Disposable {
 
         commands.executeCommand("workbench.view.extension.test", "workbench.view.extension.test");
 
+        const testCase = testName;
+        testName = testName.replace(/\(.*\)/,'');
+
         const testDirectories = this
             .testDirectories
             .getTestDirectories(testName);
@@ -224,7 +230,7 @@ export class TestCommands implements Disposable {
         Logger.Log(`Test run for ${testName}, expecting ${this.waitForAllTests.expectedNumberOfFiles} test results file(s) in total`) ;
 
         for (const {} of testDirectories) {
-            const testContext = {testName, isSingleTest};
+            const testContext = {testName, testCaseName: testCase, isSingleTest};
             this.lastRunTestContext = testContext;
             this.sendRunningTest(testContext);
         }
@@ -233,7 +239,7 @@ export class TestCommands implements Disposable {
 
             try {
                 if (Utility.runInParallel) {
-                    await Promise.all(testDirectories.map( async (dir, i) => this.runTestCommandForSpecificDirectory(dir, testName, isSingleTest, i, debug)));
+                    await Promise.all(testDirectories.map( async (dir, i) => this.runTestCommandForSpecificDirectory(dir, testCase, isSingleTest, i, debug)));
                 } else {
                     for (let i = 0; i < testDirectories.length; i++) {
                         await this.runTestCommandForSpecificDirectory(testDirectories[i], testName, isSingleTest, i, debug);
@@ -277,7 +283,7 @@ export class TestCommands implements Disposable {
 
             if (testName && testName.length) {
                 if (isSingleTest) {
-                    command = command + ` --filter "FullyQualifiedName=${testName.replace(/\(.*\)/g, "")}"`;
+                    command = command + ` --filter '"FullyQualifiedName=${testName.replace(/\(|\)|"/g,function(match) {return '\\'+match})}"'`;
                 } else {
                     command = command + ` --filter "FullyQualifiedName~${testName.replace(/\(.*\)/g, "")}"`;
                 }
