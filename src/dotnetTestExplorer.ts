@@ -2,13 +2,14 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { TreeDataProvider, TreeItem } from "vscode";
 import { AppInsightsClient } from "./appInsightsClient";
+import { buildTree, ITestTreeNode, mergeSingleItemTrees } from "./buildTree";
 import { Logger } from "./logger";
+import { parseTestName } from "./parseTestName";
 import { StatusBar } from "./statusBar";
 import { ITestRunContext, TestCommands } from "./testCommands";
 import { IDiscoverTestsResult } from "./testDiscovery";
-import { TestNode } from "./testNode";
+import { TestNode, TestNodeIcon } from "./testNode";
 import { ITestResult, TestResult } from "./testResult";
-import { TestResultsFile } from "./testResultsFile";
 import { Utility } from "./utility";
 
 export class DotnetTestExplorer implements TreeDataProvider<TestNode> {
@@ -18,12 +19,13 @@ export class DotnetTestExplorer implements TreeDataProvider<TestNode> {
 
     private discoveredTests: string[];
     private testResults: TestResult[];
-    private allNodes: TestNode[] = [];
+    private testNodes: TestNode[] = [];
 
-    constructor(private context: vscode.ExtensionContext, private testCommands: TestCommands, private resultsFile: TestResultsFile, private statusBar: StatusBar) {
+    constructor(private context: vscode.ExtensionContext, private testCommands: TestCommands, private statusBar: StatusBar) {
         testCommands.onTestDiscoveryFinished(this.updateWithDiscoveredTests, this);
         testCommands.onTestDiscoveryStarted(this.updateWithDiscoveringTest, this);
         testCommands.onTestRun(this.updateTreeWithRunningTests, this);
+        testCommands.onBuildFail(this.updateTreeWithNotRunTests, this);
         testCommands.onNewTestResults(this.addTestResults, this);
     }
 
@@ -43,9 +45,9 @@ export class DotnetTestExplorer implements TreeDataProvider<TestNode> {
     }
 
     public getTreeItem(element: TestNode): TreeItem {
-        if (element.isError) {
-            return new TreeItem(element.name);
-        }
+        // if (element.isError) {
+        //     return new TreeItem(element.name);
+        // }
 
         return {
             label: element.name,
@@ -71,120 +73,99 @@ export class DotnetTestExplorer implements TreeDataProvider<TestNode> {
 
         if (!this.discoveredTests) {
             const loadingNode = new TestNode("", "Discovering tests", this.testResults);
-            loadingNode.setAsLoading();
+            loadingNode.setIcon(TestNodeIcon.Running);
             return [loadingNode];
         }
 
         if (this.discoveredTests.length === 0) {
-            return ["Please open or set the test project", "and ensure your project compiles."].map((e) => {
-                const node = new TestNode("", e, this.testResults);
-                node.setAsError(e);
-                return node;
-            });
+            // Show the welcome message.
+            return [];
         }
 
-        const useTreeView = Utility.getConfiguration().get<string>("useTreeView");
+        const treeMode = Utility.getConfiguration().get<string>("treeMode");
 
-        if (!useTreeView) {
-            return this.discoveredTests.map((name) => {
+        if (treeMode === "flat") {
+            return this.testNodes = this.discoveredTests.map((name) => {
                 return new TestNode("", name, this.testResults);
             });
         }
 
-        const structuredTests = {};
+        const parsedTestNames = this.discoveredTests.map(parseTestName);
+        let tree = buildTree(parsedTestNames);
 
-        this.allNodes = [];
-
-        this.discoveredTests.forEach((name: string) => {
-            try {
-                // Split name on all dots that are not inside parenthesis MyNamespace.MyClass.MyMethod(value: "My.Dot") -> MyNamespace, MyClass, MyMethod(value: "My.Dot")
-                this.addToObject(structuredTests, name.split(/\.(?![^\(]*\))/g));
-            } catch (err) {
-                Logger.LogError(`Failed to add test with name ${name}`, err);
-            }
-        });
-
-        const root = this.createTestNode("", structuredTests);
-
-        return root;
-    }
-
-    private addToObject(container: object, parts: string[]): void {
-        const title = parts.splice(0, 1)[0];
-
-        if (parts.length > 1) {
-            if (!container[title]) {
-                container[title] = {};
-            }
-            this.addToObject(container[title], parts);
-        } else {
-            if (!container[title]) {
-                container[title] = [];
-            }
-
-            if (parts.length === 1) {
-                container[title].push(parts[0]);
-            }
-        }
-    }
-
-    private createTestNode(parentPath: string, test: object | string): TestNode[] {
-        let testNodes: TestNode[];
-
-        if (Array.isArray(test)) {
-            testNodes = test.map((t) => {
-                return new TestNode(parentPath, t, this.testResults);
-            });
-        } else if (typeof test === "object") {
-            testNodes = Object.keys(test).map((key) => {
-                return new TestNode(parentPath, key, this.testResults, this.createTestNode((parentPath ? `${parentPath}.` : "") + key, test[key]));
-            });
-        } else {
-            testNodes = [new TestNode(parentPath, test, this.testResults)];
+        if (treeMode === "merged") {
+            tree = mergeSingleItemTrees(tree);
         }
 
-        this.allNodes = this.allNodes.concat(testNodes);
+        this.testNodes = [];
+        const concreteRoot = this.createConcreteTree("", tree);
 
-        return testNodes;
+        return concreteRoot.children;
+    }
+
+    private createConcreteTree(parentNamespace: string, abstractTree: ITestTreeNode): TestNode {
+        const children = [];
+        for (const subNamespace of abstractTree.subTrees.values()) {
+            children.push(this.createConcreteTree(abstractTree.fullName, subNamespace));
+        }
+        for (const test of abstractTree.tests) {
+            const testNode = new TestNode(abstractTree.fullName, test, this.testResults);
+            this.testNodes.push(testNode);
+            children.push(testNode);
+        }
+        return new TestNode(parentNamespace, abstractTree.name, this.testResults, children);
     }
 
     private updateWithDiscoveringTest() {
         this.discoveredTests = null;
-        this._onDidChangeTreeData.fire();
+        this._onDidChangeTreeData.fire(null);
     }
 
     private updateWithDiscoveredTests(results: IDiscoverTestsResult[]) {
-        this.allNodes = [];
-        this.discoveredTests = [].concat(...results.map( (r) => r.testNames));
+        this.testNodes = [];
+        this.discoveredTests = [].concat(...results.map((r) => r.testNames));
         this.statusBar.discovered(this.discoveredTests.length);
-        this._onDidChangeTreeData.fire();
+        this._onDidChangeTreeData.fire(null);
     }
 
     private updateTreeWithRunningTests(testRunContext: ITestRunContext) {
+        const runningTests = this.getNodesMatchingTestRun(testRunContext);
 
-        const filter = testRunContext.isSingleTest ?
-            ((testNode: TestNode) => testNode.fqn === testRunContext.testName)
-            : ((testNode: TestNode) => testNode.fullName.startsWith(testRunContext.testName));
+        this.statusBar.testRunning(runningTests.length);
 
-        const testRun = this.allNodes.filter( (testNode: TestNode) => !testNode.isFolder && filter(testNode));
-
-        this.statusBar.testRunning(testRun.length);
-
-        testRun.forEach( (testNode: TestNode) => {
-            testNode.setAsLoading();
+        runningTests.forEach((testNode: TestNode) => {
+            testNode.setIcon(TestNodeIcon.Running);
             this._onDidChangeTreeData.fire(testNode);
         });
     }
 
+    private updateTreeWithNotRunTests(testRunContext: ITestRunContext) {
+
+        const runningTests = this.getNodesMatchingTestRun(testRunContext);
+
+        runningTests.forEach((testNode: TestNode) => {
+            testNode.setIcon(TestNodeIcon.TestNotRun);
+            this._onDidChangeTreeData.fire(testNode);
+        });
+    }
+
+    private getNodesMatchingTestRun(testRunContext: ITestRunContext) {
+        const filter = testRunContext.isSingleTest ?
+            ((testNode: TestNode) => testNode.fqn === testRunContext.testName)
+            : ((testNode: TestNode) => testNode.fullName.startsWith(testRunContext.testName));
+
+        return this.testNodes.filter((testNode: TestNode) => !testNode.isFolder && filter(testNode));
+    }
+
     private addTestResults(results: ITestResult) {
 
-        const fullNamesForTestResults = results.testResults.map( (r) => r.fullName);
+        const fullNamesForTestResults = results.testResults.map((r) => r.fullName);
 
         if (results.clearPreviousTestResults) {
             this.discoveredTests = [...fullNamesForTestResults];
             this.testResults = null;
         } else {
-            const newTests = fullNamesForTestResults.filter( (r) => this.discoveredTests.indexOf(r) === -1);
+            const newTests = fullNamesForTestResults.filter((r) => this.discoveredTests.indexOf(r) === -1);
 
             if (newTests.length > 0) {
                 this.discoveredTests.push(...newTests);
@@ -196,8 +177,8 @@ export class DotnetTestExplorer implements TreeDataProvider<TestNode> {
         this.statusBar.discovered(this.discoveredTests.length);
 
         if (this.testResults) {
-            results.testResults.forEach( (newTestResult: TestResult) => {
-                const indexOldTestResult = this.testResults.findIndex( (tr) => tr.fullName === newTestResult.fullName);
+            results.testResults.forEach((newTestResult: TestResult) => {
+                const indexOldTestResult = this.testResults.findIndex((tr) => tr.fullName === newTestResult.fullName);
 
                 if (indexOldTestResult < 0) {
                     this.testResults.push(newTestResult);
@@ -211,6 +192,6 @@ export class DotnetTestExplorer implements TreeDataProvider<TestNode> {
 
         this.statusBar.testRun(results.testResults);
 
-        this._onDidChangeTreeData.fire();
+        this._onDidChangeTreeData.fire(null);
     }
 }

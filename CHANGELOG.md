@@ -1,3 +1,22 @@
+## 0.7.4 (2020-08-02)
+* [#282](https://github.com/formulahendry/vscode-dotnet-test-explorer/pull/282): F build error view
+* [#281](https://github.com/formulahendry/vscode-dotnet-test-explorer/pull/281): Bump lodash from 4.17.15 to 4.17.19
+* [#275](https://github.com/formulahendry/vscode-dotnet-test-explorer/pull/275): Add the csharp extension as a dependency
+* [#270](https://github.com/formulahendry/vscode-dotnet-test-explorer/pull/270): Fix #267 
+
+## 0.7.3 (2020-06-10)
+* [#268](https://github.com/formulahendry/vscode-dotnet-test-explorer/pull/268): Improve test discovery experience
+* [#261](https://github.com/formulahendry/vscode-dotnet-test-explorer/pull/261): Filter duplicate detected test folders
+* [#246](https://github.com/formulahendry/vscode-dotnet-test-explorer/pull/246): Add openPanel command to and set Status Bar command to trigger
+* [#257](https://github.com/formulahendry/vscode-dotnet-test-explorer/pull/257): Add option to merge tree nodes with only one child
+* [#263](https://github.com/formulahendry/vscode-dotnet-test-explorer/pull/263): Upgrade packages
+* [#260](https://github.com/formulahendry/vscode-dotnet-test-explorer/pull/260): Don't remove directories without tests
+
+## 0.7.2 (2020-05-28)
+* [#256](https://github.com/formulahendry/vscode-dotnet-test-explorer/pull/256): Show welcome message when no tests are discovered
+* [#211](https://github.com/formulahendry/vscode-dotnet-test-explorer/pull/211): Fix "forever spinning"
+* [#238](https://github.com/formulahendry/vscode-dotnet-test-explorer/pull/238): Fix warning message typo
+
 ## 0.7.1 (2019-06-12)
 * [#219](https://github.com/formulahendry/vscode-dotnet-test-explorer/pull/219): Place code lens icon on lens row
 
